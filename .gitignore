@@ -1,0 +1,9 @@
+# Project exclude paths
+/.gradle/
+/build/
+/throughput-client/build/
+/throughput-client/build/classes/kotlin/main/
+/throughput-common/build/
+/throughput-common/build/classes/kotlin/main/
+/throughput-server/build/
+/throughput-server/build/classes/kotlin/main/
