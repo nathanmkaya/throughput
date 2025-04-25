@@ -3,12 +3,13 @@ package com.throughput.server.service.impl
 import com.throughput.common.model.UploadResult
 import com.throughput.common.util.Constants
 import com.throughput.server.service.UploadService
-import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.readAvailable
+import io.ktor.utils.io.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import org.slf4j.LoggerFactory
+import java.io.IOException
+import kotlin.time.Duration
 
 /**
  * Implementation of UploadService for handling file uploads with non-blocking IO
@@ -22,11 +23,12 @@ class UploadServiceImpl : UploadService {
             var bytesRead: Long = 0
             
             try {
-                // Read data efficiently using ByteReadChannel.
-                // We don't need to store the data, consume it and count bytes
+                // Read data efficiently using ByteReadChannel
+                // We don't need to store the data, just consume it and count bytes
                 val bufferSize = 8192 // 8KB buffer
                 val buffer = ByteArray(bufferSize)
-                val yieldEvery = 1024 * 1024 // Yield every 1MB
+                val yieldEvery = 1024 * 1024 // 1MB
+                var nextYieldPoint = yieldEvery
                 
                 while (!channel.isClosedForRead) {
                     val chunk = channel.readAvailable(buffer, 0, bufferSize)
@@ -34,9 +36,10 @@ class UploadServiceImpl : UploadService {
                     
                     bytesRead += chunk
                     
-                    // Periodically yield to avoid hogging the thread
-                    if (bytesRead % yieldEvery < bufferSize) {
+                    // Yield periodically to avoid hogging the thread - simplified logic
+                    if (bytesRead >= nextYieldPoint) {
                         yield()
+                        nextYieldPoint += yieldEvery
                     }
                 }
                 
@@ -48,6 +51,9 @@ class UploadServiceImpl : UploadService {
                     endTimeMillis = endTime,
                     sizeBytes = bytesRead
                 )
+            } catch (e: IOException) {
+                logger.error("I/O error processing upload", e)
+                throw e
             } catch (e: Exception) {
                 logger.error("Error processing upload", e)
                 throw e

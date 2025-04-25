@@ -4,6 +4,7 @@ import com.throughput.client.api.DownloadFlowEvent
 import com.throughput.client.api.ThroughputClient
 import com.throughput.client.model.ClientConfig
 import com.throughput.client.util.DataGenerator
+import com.throughput.client.util.ProgressUtils
 import com.throughput.common.model.DownloadResult
 import com.throughput.common.model.ThroughputException
 import com.throughput.common.model.UploadResult
@@ -50,7 +51,7 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
         install(HttpTimeout) {
             connectTimeoutMillis = config.connectionTimeoutMs
             socketTimeoutMillis = config.socketTimeoutMs
-            requestTimeoutMillis = config.connectionTimeoutMs + config.socketTimeoutMs
+            requestTimeoutMillis = config.requestTimeoutMs
         }
         
         expectSuccess = true
@@ -75,29 +76,48 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
                     
                     override suspend fun writeTo(channel: ByteWriteChannel) {
                         var bytesWritten = 0L
-                        val bufferSize = 8192
-                        val progressUpdateInterval = 64 * 1024 // Update progress every 64KB
+                        var lastReportedPosition = 0L
+                        var nextYieldPoint = ProgressUtils.DEFAULT_YIELD_INTERVAL
                         
                         try {
+                            val bufferSize = 8192
                             val buffer = ByteArray(bufferSize)
                             
                             while (bytesWritten < sizeBytes) {
                                 val bytesToWrite = minOf(bufferSize.toLong(), sizeBytes - bytesWritten).toInt()
-                                DataGenerator.random.nextBytes(buffer)
+                                DataGenerator.random.nextBytes(buffer, 0, bytesToWrite)
                                 channel.writeFully(buffer, 0, bytesToWrite)
                                 
                                 bytesWritten += bytesToWrite
                                 
-                                // Report progress periodically to avoid excessive callbacks
-                                if (bytesWritten % progressUpdateInterval < bufferSize || bytesWritten == sizeBytes) {
-                                    onProgress?.invoke(bytesWritten, sizeBytes)
-                                }
+                                // Report progress
+                                lastReportedPosition = ProgressUtils.reportProgressIfNeeded(
+                                    bytesTransferred = bytesWritten,
+                                    totalBytes = sizeBytes,
+                                    onProgress = onProgress,
+                                    lastReportedPosition = lastReportedPosition
+                                )
                                 
-                                // Yield periodically to avoid hogging the thread
-                                if (bytesWritten % (1024 * 1024) < bufferSize) {
+                                // Yield periodically
+                                val (shouldYield, newYieldPoint) = ProgressUtils.shouldYield(
+                                    bytesTransferred = bytesWritten,
+                                    nextYieldPosition = nextYieldPoint
+                                )
+                                if (shouldYield) {
                                     kotlinx.coroutines.yield()
+                                    nextYieldPoint = newYieldPoint
                                 }
                             }
+                            
+                            // Final progress report at 100%
+                            ProgressUtils.reportProgressIfNeeded(
+                                bytesTransferred = sizeBytes,
+                                totalBytes = sizeBytes,
+                                onProgress = onProgress,
+                                lastReportedPosition = lastReportedPosition,
+                                forceReport = true
+                            )
+                            
                             channel.flush()
                         } catch (e: Exception) {
                             throw IOException("Error generating or writing upload data: ${e.message}", e)
@@ -131,6 +151,12 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
         }
     }
     
+    /**
+     * Synchronous version of uploadData.
+     * 
+     * WARNING: This method blocks the current thread until completion. For UI applications
+     * or server contexts, use the suspend version instead to avoid thread pool starvation.
+     */
     override fun uploadDataSync(
         sizeBytes: Long,
         onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
@@ -185,6 +211,12 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
         }
     }
     
+    /**
+     * Synchronous version of downloadData.
+     * 
+     * WARNING: This method blocks the current thread until completion. For UI applications
+     * or server contexts, use the suspend version instead to avoid thread pool starvation.
+     */
     override fun downloadDataSync(
         sizeBytes: Long,
         onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
@@ -218,8 +250,9 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
                         // Stream file contents directly to the channel
                         val fileChannel = AsynchronousFileChannel.open(file.toPath(), StandardOpenOption.READ)
                         var position = 0L
+                        var lastReportedPosition = 0L
+                        var nextYieldPoint = ProgressUtils.DEFAULT_YIELD_INTERVAL
                         val buffer = ByteBuffer.allocate(8192)
-                        val progressUpdateInterval = 64 * 1024 // Update progress every 64KB
                         
                         try {
                             while (position < fileSize) {
@@ -231,16 +264,34 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
                                 channel.writeFully(buffer)
                                 position += bytesRead
                                 
-                                // Report progress periodically to avoid excessive callbacks
-                                if (position % progressUpdateInterval < buffer.capacity() || position == fileSize) {
-                                    onProgress?.invoke(position, fileSize)
-                                }
+                                // Report progress
+                                lastReportedPosition = ProgressUtils.reportProgressIfNeeded(
+                                    bytesTransferred = position,
+                                    totalBytes = fileSize,
+                                    onProgress = onProgress,
+                                    lastReportedPosition = lastReportedPosition
+                                )
                                 
-                                // Yield periodically to avoid hogging the thread
-                                if (position % (1024 * 1024) < buffer.capacity()) {
+                                // Yield periodically
+                                val (shouldYield, newYieldPoint) = ProgressUtils.shouldYield(
+                                    bytesTransferred = position,
+                                    nextYieldPosition = nextYieldPoint
+                                )
+                                if (shouldYield) {
                                     kotlinx.coroutines.yield()
+                                    nextYieldPoint = newYieldPoint
                                 }
                             }
+                            
+                            // Final progress report at 100%
+                            ProgressUtils.reportProgressIfNeeded(
+                                bytesTransferred = fileSize, 
+                                totalBytes = fileSize,
+                                onProgress = onProgress,
+                                lastReportedPosition = lastReportedPosition,
+                                forceReport = true
+                            )
+                            
                             channel.flush()
                         } catch (e: Exception) {
                             throw IOException("Error reading from file or writing to upload channel: ${e.message}", e)
@@ -276,6 +327,12 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
         }
     }
     
+    /**
+     * Synchronous version of uploadFile.
+     * 
+     * WARNING: This method blocks the current thread until completion. For UI applications
+     * or server contexts, use the suspend version instead to avoid thread pool starvation.
+     */
     override fun uploadFileSync(
         file: File,
         onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
@@ -299,6 +356,9 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
                 contentType(ContentType.Application.Json)
             }
             
+            // Create parent directories if they don't exist
+            destinationFile.parentFile?.mkdirs()
+            
             // Stream directly to file
             val fileChannel = AsynchronousFileChannel.open(
                 destinationFile.toPath(),
@@ -309,9 +369,10 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
             
             val bytesRead = try {
                 var position = 0L
+                var lastReportedPosition = 0L
+                var nextYieldPoint = ProgressUtils.DEFAULT_YIELD_INTERVAL
                 val channel = response.bodyAsChannel()
                 val buffer = ByteBuffer.allocate(8192)
-                val progressUpdateInterval = 64 * 1024 // Update progress every 64KB
                 
                 while (!channel.isClosedForRead) {
                     buffer.clear()
@@ -324,21 +385,43 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
                         position += written
                     }
                     
-                    // Report progress periodically to avoid excessive callbacks
-                    if (position % progressUpdateInterval < buffer.capacity() || position == sizeBytes) {
-                        onProgress?.invoke(position, sizeBytes)
-                    }
+                    // Report progress
+                    lastReportedPosition = ProgressUtils.reportProgressIfNeeded(
+                        bytesTransferred = position,
+                        totalBytes = sizeBytes,
+                        onProgress = onProgress,
+                        lastReportedPosition = lastReportedPosition
+                    )
                     
-                    // Yield periodically to avoid hogging the thread
-                    if (position % (1024 * 1024) < buffer.capacity()) {
+                    // Yield periodically
+                    val (shouldYield, newYieldPoint) = ProgressUtils.shouldYield(
+                        bytesTransferred = position,
+                        nextYieldPosition = nextYieldPoint
+                    )
+                    if (shouldYield) {
                         kotlinx.coroutines.yield()
+                        nextYieldPoint = newYieldPoint
                     }
                 }
+                
+                // Final progress report at 100%
+                ProgressUtils.reportProgressIfNeeded(
+                    bytesTransferred = position,
+                    totalBytes = sizeBytes,
+                    onProgress = onProgress,
+                    lastReportedPosition = lastReportedPosition,
+                    forceReport = true
+                )
+                
                 position
             } catch (e: Exception) {
                 throw IOException("Error writing downloaded data to file: ${e.message}", e)
             } finally {
-                fileChannel.close()
+                try {
+                    fileChannel.close()
+                } catch (e: Exception) {
+                    logger.warn("Error closing file channel", e)
+                }
             }
             
             val endTime = System.currentTimeMillis()
@@ -370,6 +453,12 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
         }
     }
     
+    /**
+     * Synchronous version of downloadToFile.
+     * 
+     * WARNING: This method blocks the current thread until completion. For UI applications
+     * or server contexts, use the suspend version instead to avoid thread pool starvation.
+     */
     override fun downloadToFileSync(
         sizeBytes: Long, 
         destinationFile: File,
@@ -394,9 +483,10 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
             }
             
             var totalBytesRead = 0L
+            var lastReportedPosition = 0L
+            var nextYieldPoint = ProgressUtils.DEFAULT_YIELD_INTERVAL
             val channel = response.bodyAsChannel()
             val buffer = ByteArray(8192)
-            val progressUpdateInterval = 64 * 1024 // Update progress every 64KB
             
             while (!channel.isClosedForRead) {
                 val bytesRead = channel.readAvailable(buffer)
@@ -407,16 +497,33 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
                 // Emit chunk event
                 emit(DownloadFlowEvent.Chunk(ByteBuffer.wrap(buffer.copyOf(bytesRead))))
                 
-                // Report progress periodically to avoid excessive callbacks
-                if (totalBytesRead % progressUpdateInterval < buffer.size || totalBytesRead == sizeBytes) {
-                    onProgress?.invoke(totalBytesRead, sizeBytes)
-                }
+                // Report progress
+                lastReportedPosition = ProgressUtils.reportProgressIfNeeded(
+                    bytesTransferred = totalBytesRead,
+                    totalBytes = sizeBytes,
+                    onProgress = onProgress,
+                    lastReportedPosition = lastReportedPosition
+                )
                 
-                // Yield periodically to avoid hogging the thread
-                if (totalBytesRead % (1024 * 1024) < buffer.size) {
+                // Yield periodically
+                val (shouldYield, newYieldPoint) = ProgressUtils.shouldYield(
+                    bytesTransferred = totalBytesRead,
+                    nextYieldPosition = nextYieldPoint
+                )
+                if (shouldYield) {
                     kotlinx.coroutines.yield()
+                    nextYieldPoint = newYieldPoint
                 }
             }
+            
+            // Final progress report at 100%
+            ProgressUtils.reportProgressIfNeeded(
+                bytesTransferred = totalBytesRead,
+                totalBytes = sizeBytes,
+                onProgress = onProgress,
+                lastReportedPosition = lastReportedPosition,
+                forceReport = true
+            )
             
             val endTime = System.currentTimeMillis()
             val result = DownloadResult(
@@ -456,9 +563,10 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
         onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
     ): Long {
         var bytesRead = 0L
+        var lastReportedPosition = 0L
+        var nextYieldPoint = ProgressUtils.DEFAULT_YIELD_INTERVAL
         val buffer = ByteArray(8192)
         val channel = response.bodyAsChannel()
-        val progressUpdateInterval = 64 * 1024 // Update progress every 64KB
         
         try {
             while (!channel.isClosedForRead) {
@@ -467,16 +575,33 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
                 
                 bytesRead += chunk
                 
-                // Report progress periodically to avoid excessive callbacks
-                if (bytesRead % progressUpdateInterval < buffer.size || bytesRead == totalSize) {
-                    onProgress?.invoke(bytesRead, totalSize)
-                }
+                // Report progress
+                lastReportedPosition = ProgressUtils.reportProgressIfNeeded(
+                    bytesTransferred = bytesRead,
+                    totalBytes = totalSize,
+                    onProgress = onProgress,
+                    lastReportedPosition = lastReportedPosition
+                )
                 
-                // Yield periodically to avoid hogging the thread
-                if (bytesRead % (1024 * 1024) < buffer.size) {
+                // Yield periodically
+                val (shouldYield, newYieldPoint) = ProgressUtils.shouldYield(
+                    bytesTransferred = bytesRead,
+                    nextYieldPosition = nextYieldPoint
+                )
+                if (shouldYield) {
                     kotlinx.coroutines.yield()
+                    nextYieldPoint = newYieldPoint
                 }
             }
+            
+            // Final progress report at 100%
+            ProgressUtils.reportProgressIfNeeded(
+                bytesTransferred = bytesRead,
+                totalBytes = totalSize,
+                onProgress = onProgress,
+                lastReportedPosition = lastReportedPosition,
+                forceReport = true
+            )
         } catch (e: Exception) {
             throw IOException("Error reading response body: ${e.message}", e)
         }
@@ -502,6 +627,10 @@ class ThroughputClientImpl(private val config: ClientConfig) : ThroughputClient 
         }
     }
     
+    /**
+     * Closes resources associated with this client.
+     * After closing, this client instance cannot be used anymore.
+     */
     override fun close() {
         try {
             httpClient.close()
