@@ -20,7 +20,7 @@ This project provides:
 
 **Server:**
 
-* **Download Endpoint**: Generates and streams binary data of a specified size (`GET /v1/download/{size}`)[cite: 9, 216, 416]. A legacy POST endpoint is also available but deprecated (`POST /v1/download`).
+* **Download Endpoint**: Generates and streams binary data of a specified size (`GET /v1/download/{size}`). A legacy POST endpoint is also available but deprecated (`POST /v1/download`).
 * **Upload Endpoint**: Receives streamed binary data (`POST /v1/upload`) and returns timing information (`UploadResult`).
 * **Size Validation**: Enforces maximum download and upload sizes defined in `Constants.kt`.
 * **Non-Blocking I/O**: Uses Ktor's `ByteReadChannel` and `ByteWriteChannel` for efficient, non-blocking stream processing.
@@ -79,7 +79,7 @@ network-throughput/
     ```bash
     ./gradlew :throughput-server:run
     ```
-3.  The server will start, typically on `http://0.0.0.0:8080` (configurable in `throughput-server/src/main/resources/application.conf`). Check the logs for the exact address and port[cite: 6, 213].
+3.  The server will start, typically on `http://0.0.0.0:8080` (configurable in `throughput-server/src/main/resources/application.conf`). Check the logs for the exact address and port.
 
 ### Using the Client Library
 
@@ -93,10 +93,6 @@ network-throughput/
 2.  **Use the Client**: Instantiate and use the client via the `ThroughputClientFactory`. Remember to close the client when done, preferably using `use`.
 
     ```kotlin
-    import com.throughput.client.ThroughputClientFactory
-    import kotlinx.coroutines.runBlocking
-    import java.io.File
-
     fun main() = runBlocking {
         // Create a client (defaults to http://localhost:8080)
         // Use builder for custom configuration
@@ -112,7 +108,7 @@ network-throughput/
                 null
             }
             println() // Newline after progress
-            downloadResult?.let { println(it.toDetailedString()) } // [cite: 200, 401]
+            downloadResult?.let { println(it.toDetailedString()) }
 
             println("\nStarting upload test...")
             val uploadResult = try {
@@ -125,14 +121,14 @@ network-throughput/
                 null
             }
             println() // Newline after progress
-            uploadResult?.let { println(it.toDetailedString()) } // [cite: 206, 407]
+            uploadResult?.let { println(it.toDetailedString()) }
 
             // Example: Download to file
             // val file = File("test.bin")
             // val fileResult = client.downloadToFile(10 * 1024 * 1024, file) { ... }
             // println(fileResult.toSummaryString())
 
-        } // Client is automatically closed here [cite: 183]
+        } // The Client is automatically closed here
     }
     ```
 
