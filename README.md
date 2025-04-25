@@ -1,6 +1,3 @@
-Okay, here is a README file for the project based on the code provided in `throughput.txt`:
-
-```markdown
 # Ktor Network Throughput Tester
 
 A client-server application built with Ktor to measure network throughput (upload and download speeds).
@@ -23,10 +20,10 @@ This project provides:
 
 **Server:**
 
-* **Download Endpoint**: Generates and streams binary data of a specified size (`GET /v1/download/{size}`)[cite: 9, 216, 416]. A legacy POST endpoint is also available but deprecated (`POST /v1/download`)[cite: 15, 222, 422, 568].
-* **Upload Endpoint**: Receives streamed binary data (`POST /v1/upload`) [cite: 22, 229, 429, 573] and returns timing information (`UploadResult`)[cite: 43, 250, 450].
+* **Download Endpoint**: Generates and streams binary data of a specified size (`GET /v1/download/{size}`)[cite: 9, 216, 416]. A legacy POST endpoint is also available but deprecated (`POST /v1/download`).
+* **Upload Endpoint**: Receives streamed binary data (`POST /v1/upload`) and returns timing information (`UploadResult`).
 * **Size Validation**: Enforces maximum download and upload sizes defined in `Constants.kt`.
-* **Non-Blocking I/O**: Uses Ktor's `ByteReadChannel` and `ByteWriteChannel` for efficient, non-blocking stream processing[cite: 13, 20, 25, 30, 38, 220, 227, 232, 237, 245, 420, 427, 432, 437, 445].
+* **Non-Blocking I/O**: Uses Ktor's `ByteReadChannel` and `ByteWriteChannel` for efficient, non-blocking stream processing.
 * **Dependency Injection**: Uses Koin for managing dependencies.
 * **Configuration**: Configured via `application.conf`.
 * **Error Handling**: Centralized error handling using Ktor's `StatusPages` plugin.
@@ -38,12 +35,12 @@ This project provides:
 * **Synchronous API (Use with Caution)**: Offers `*Sync` methods that wrap suspend functions using `runBlocking`. Be aware that `runBlocking` blocks the calling thread.
 * **Streaming Operations**: Uploads and downloads data efficiently using streams, avoiding loading large files into memory.
 * **Multiple Download Modes**:
-    * `downloadData`: Discards data after download (for pure speed test)[cite: 91, 168, 292, 369, 473, 532].
-    * `downloadToFile`: Streams data directly to a specified file[cite: 117, 176, 318, 377, 491, 540].
-    * `downloadAsFlow`: Provides a `Flow<DownloadFlowEvent>` for reactive chunk processing[cite: 133, 182, 334, 383, 503, 544].
+    * `downloadData`: Discards data after download (for pure speed test).
+    * `downloadToFile`: Streams data directly to a specified file.
+    * `downloadAsFlow`: Provides a `Flow<DownloadFlowEvent>` for reactive chunk processing.
 * **Multiple Upload Modes**:
-    * `uploadData`: Generates and streams random data[cite: 72, 164, 273, 365, 466, 528].
-    * `uploadFile`: Streams data directly from a specified file[cite: 98, 172, 299, 373, 479, 536].
+    * `uploadData`: Generates and streams random data.
+    * `uploadFile`: Streams data directly from a specified file.
 * **Progress Reporting**: Optional lambda callbacks (`onProgress`) provide updates on bytes transferred.
 * **Resource Management**: Implements `Closeable` to release the underlying `HttpClient`.
 
@@ -138,22 +135,12 @@ network-throughput/
         } // Client is automatically closed here [cite: 183]
     }
     ```
-    *(Example adapted from code snippets)*
 
 ## Server API Endpoints
 
-Base path: `/v1` [cite: 8, 195, 396, 555, 642]
+Base path: `/v1`
 
-* `GET /download/{size}`: Initiates a download of `{size}` bytes. Returns binary data stream. [cite: 9, 216, 416]
-* `POST /upload`: Accepts a binary data stream upload. Requires `Content-Length` header. Returns `UploadResult` JSON upon completion. [cite: 22, 229, 429, 573]
-* `POST /download` (Deprecated): Initiates download. Expects JSON body `{"sizeBytes": Long}`. Returns binary data stream. [cite: 15, 222, 422, 568]
+* `GET /download/{size}`: Initiates a download of `{size}` bytes. Returns binary data stream.
+* `POST /upload`: Accepts a binary data stream upload. Requires `Content-Length` header. Returns `UploadResult` JSON upon completion.
+* `POST /download` (Deprecated): Initiates download. Expects JSON body `{"sizeBytes": Long}`. Returns binary data stream.
 
-## Contributing
-
-(Placeholder: Add guidelines for contributing if applicable)
-
-## License
-
-(Placeholder: Specify the project license, e.g., MIT, Apache 2.0)
-
-```
